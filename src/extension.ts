@@ -9,7 +9,10 @@ const ZIG_MODE: vscode.DocumentFilter = { language: "zig", scheme: "file" };
 
 export async function activate(context: vscode.ExtensionContext) {
     await setupZig(context).finally(() => {
-        const compiler = new ZigCompilerProvider();
+        const buildDiagnostics = vscode.languages.createDiagnosticCollection("zig");
+        context.subscriptions.push(buildDiagnostics);
+
+        const compiler = new ZigCompilerProvider(buildDiagnostics);
         compiler.activate(context.subscriptions);
 
         if (vscode.workspace.getConfiguration("zig").get<string>("formattingProvider") === "extension") {
@@ -21,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext) {
             );
         }
 
-        void activateZls(context);
+        void activateZls(context, buildDiagnostics);
     });
 }
 

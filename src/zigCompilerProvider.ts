@@ -9,15 +9,18 @@ import { DebouncedFunc, throttle } from "lodash-es";
 import * as zls from "./zls";
 import { getZigPath, handleConfigOption } from "./zigUtil";
 
-export default class ZigCompilerProvider {
-    private buildDiagnostics!: vscode.DiagnosticCollection;
-    private astDiagnostics!: vscode.DiagnosticCollection;
+export default class ZigCompilerProvider implements vscode.Disposable {
+    private buildDiagnostics: vscode.DiagnosticCollection;
+    private astDiagnostics: vscode.DiagnosticCollection;
     private dirtyChange = new WeakMap<vscode.Uri, boolean>();
 
     private doASTGenErrorCheck: DebouncedFunc<(change: vscode.TextDocumentChangeEvent) => void>;
     private doCompile: DebouncedFunc<(textDocument: vscode.TextDocument) => void>;
 
-    constructor() {
+    constructor(buildDiagnostics: vscode.DiagnosticCollection) {
+        this.buildDiagnostics = buildDiagnostics;
+        this.astDiagnostics = vscode.languages.createDiagnosticCollection("zig");
+
         this.doASTGenErrorCheck = throttle(
             (change: vscode.TextDocumentChangeEvent) => {
                 this._doASTGenErrorCheck(change);
@@ -82,6 +85,10 @@ export default class ZigCompilerProvider {
         }
 
         this.dirtyChange.set(document.uri, document.isDirty);
+    }
+
+    public dispose(): void {
+        this.astDiagnostics.dispose();
     }
 
     private _doASTGenErrorCheck(change: vscode.TextDocumentChangeEvent) {

@@ -17,6 +17,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
+    "onDebugInitialConfigurations",
+    "onDebugResolve:zig",
     "workspaceContains:*/build.zig",
     "workspaceContains:*/build.zig.zon"
   ],
@@ -389,6 +391,65 @@
       {
         "fileMatch": "zls.json",
         "url": "https://raw.githubusercontent.com/zigtools/zls/master/schema.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "zig"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "zig",
+        "label": "Zig",
+        "languages": [
+          "zig"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "args"
+            ],
+            "properties": {
+              "args": {
+                "type": "array",
+                "description": "List of extra arguments that should be passed to Zig.",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "prefixItems": [
+                  {
+                    "enum": [
+                      "build",
+                      "run",
+                      "test"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "configurationSnippets": [
+          {
+            "label": "Zig: Launch",
+            "description": "Launch zig build",
+            "body": {
+              "type": "zig",
+              "request": "launch",
+              "name": "${2:Launch}",
+              "args": [
+                "build",
+                "${command:AskForBuildStepName}"
+              ],
+              "cwd": "^\"\\${workspaceFolder}\""
+            }
+          }
+        ],
+        "variables": {
+          "AskForBuildStepName": "extension.zig.getBuildStepName"
+        }
       }
     ]
   },

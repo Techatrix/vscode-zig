@@ -1,5 +1,6 @@
 import vscode from "vscode";
 
+import childProcess from "child_process";
 import fs from "fs";
 
 import {
@@ -17,6 +18,7 @@ import camelCase from "camelcase";
 import mkdirp from "mkdirp";
 import semver from "semver";
 
+import { DebugConfigurationProvider, splitBuildAndRunArgs } from "./debugConfigurationProvider";
 import {
     getExePath,
     getHostZigName,
@@ -353,7 +355,25 @@ function checkInstalled(): boolean {
     return true;
 }
 
-export async function activate(context: vscode.ExtensionContext) {
+interface BuildConfig {
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    build_graph: {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        top_level_steps: {
+            name: string;
+            description: string | null;
+            step: number;
+        }[];
+        steps: {
+            id: string;
+            kind: string;
+            name: string;
+            dependencies: number[];
+        }[];
+    };
+}
+
+export async function activate(context: vscode.ExtensionContext, buildDiagnostics: vscode.DiagnosticCollection) {
     outputChannel = vscode.window.createOutputChannel("Zig Language Server");
 
     context.subscriptions.push(
@@ -400,6 +420,79 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }),
+        vscode.debug.registerDebugConfigurationProvider("zig", new DebugConfigurationProvider(buildDiagnostics)),
+        vscode.commands.registerCommand(
+            "extension.zig.getBuildStepName",
+            async (debugConfiguration: vscode.DebugConfiguration) => {
+                // TODO validate that the user didn't specify --build-runner
+                console.assert(debugConfiguration.type === "zig");
+                const args = debugConfiguration.args as string[];
+                const [buildArgs] = splitBuildAndRunArgs(args);
+
+                const buildFilePath = buildArgs[buildArgs.findIndex((value) => value === "--build-file") + 1];
+                console.assert(buildFilePath);
+
+                // Index of every argument that is "${command:AskForBuildStepName}" which will be replaced later
+                const askForBuildStepNameArgIndices = [];
+                // arguments without "${command:AskForBuildStepName}"
+                const buildArgsWithoutPlaceholders: string[] = [];
+
+                for (let i = 0; i < buildArgs.length; i++) {
+                    if (buildArgs[i] === "${command:AskForBuildStepName}") {
+                        askForBuildStepNameArgIndices.push(i);
+                    } else {
+                        buildArgsWithoutPlaceholders.push(buildArgs[i]);
+                    }
+                }
+
+                return new Promise<string | null>((resolve, reject) => {
+                    const quickPick = vscode.window.createQuickPick();
+                    quickPick.enabled = false;
+                    quickPick.busy = true;
+                    quickPick.canSelectMany = false;
+                    quickPick.show();
+
+                    quickPick.onDidHide(() => {
+                        quickPick.dispose();
+                        resolve(null);
+                    });
+                    quickPick.onDidChangeSelection(() => {
+                        if (quickPick.selectedItems[0]) {
+                            resolve(quickPick.selectedItems[0].label);
+                        }
+                    });
+
+                    const zigPath = getZigPath();
+                    const buildGraphArgs = buildArgsWithoutPlaceholders.concat(
+                        "--build-runner",
+                        "/home/techatrix/repos/zls/src/build_runner/0.12.0.zig",
+                    );
+                    try {
+                        // TODO make callback
+                        const stdout = childProcess.execFileSync(zigPath, buildGraphArgs, {
+                            // TODO cwd
+                            encoding: "utf8",
+                            maxBuffer: 10 * 1024 * 1024,
+                            timeout: 30 * 1000, // 30 seconds
+                        });
+                        const buildConfig = JSON.parse(stdout) as BuildConfig;
+                        quickPick.items = buildConfig.build_graph.top_level_steps.map<vscode.QuickPickItem>((tls) => ({
+                            label: tls.name,
+                            description: tls.description ?? undefined,
+                        }));
+                        quickPick.enabled = true;
+                        quickPick.busy = false;
+                    } catch (err) {
+                        quickPick.dispose();
+                        if (err instanceof Error) {
+                            reject(new Error(`failed to run '${zigPath} ${buildGraphArgs.join(" ")}': ${err.message}`));
+                        } else {
+                            reject(new Error(`failed to run '${zigPath} ${buildGraphArgs.join(" ")}'`));
+                        }
+                    }
+                });
+            },
+        ),
     );
 
     const zlsConfig = vscode.workspace.getConfiguration("zig.zls");
